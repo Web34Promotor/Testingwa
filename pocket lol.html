@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jinx Challenger Dodge</title>
+    <style>
+        body { margin: 0; background: #000; color: #00ffcc; font-family: sans-serif; overflow: hidden; touch-action: none; display: flex; justify-content: center; }
+        #ui { position: absolute; top: 10px; width: 100%; text-align: center; pointer-events: none; z-index: 10; font-family: 'Courier New', monospace; }
+        canvas { background: #1a1a1a; border-left: 5px solid #333; border-right: 5px solid #333; box-shadow: 0 0 50px rgba(0,255,200,0.1); }
+        #flash-btn { 
+            position: absolute; bottom: 30px; right: 30px; width: 80px; height: 80px; 
+            background: #f1c40f; border: 4px solid #fff; border-radius: 50%; 
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; color: #000; font-size: 14px; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div style="font-size: 24px;">SCORE: <span id="score">0</span></div>
+    <div>DIFICULTAD: <span id="vel-txt">100%</span> | HP: <span id="hp">100</span>%</div>
+</div>
+
+<div id="flash-btn">FLASH<br>(F)</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const flashBtn = document.getElementById("flash-btn");
+
+// Configurar el carril estrecho (Ancho fijo, alto total)
+function resize() {
+    canvas.width = Math.min(window.innerWidth, 450); // Carril estrecho tipo "Lane"
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+canvas.oncontextmenu = (e) => e.preventDefault(); // Bloquear menú derecho
+
+let score = 0;
+let hp = 100;
+let speedMult = 1.2; 
+let flashReady = true;
+
+const player = { x: canvas.width/2, y: canvas.height - 100, tx: canvas.width/2, ty: canvas.height - 100, size: 12, speed: 5 };
+const skillshots = [];
+const bullets = [];
+const enemies = [];
+
+// --- CONTROLES ---
+canvas.addEventListener("mousedown", (e) => {
+    if (e.button === 0) { // Click Izquierdo: Disparar
+        shoot(e.clientX - canvas.offsetLeft, e.clientY);
+    } else if (e.button === 2) { // Click Derecho: Moverse
+        player.tx = e.clientX - canvas.offsetLeft;
+        player.ty = e.clientY;
+    }
+});
+
+// Soporte Táctil (Móvil)
+canvas.addEventListener("touchstart", (e) => {
+    const touch = e.touches[0];
+    const x = touch.clientX - canvas.offsetLeft;
+    const y = touch.clientY;
+    player.tx = x; player.ty = y;
+    shoot(x, y);
+});
+
+// Tecla F para Flash en PC
+window.addEventListener("keydown", (e) => { if(e.code === "KeyF") useFlash(); });
+flashBtn.addEventListener("click", useFlash);
+
+function useFlash() {
+    if (!flashReady) return;
+    const dx = player.tx - player.x;
+    const dy = player.ty - player.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 5) {
+        player.x += (dx / dist) * 160;
+        player.y += (dy / dist) * 160;
+        flashReady = false;
+        flashBtn.style.opacity = "0.3";
+        setTimeout(() => { flashReady = true; flashBtn.style.opacity = "1"; }, 4000);
+    }
+}
+
+function shoot(tx, ty) {
+    const angle = Math.atan2(ty - player.y, tx - player.x);
+    bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12 });
+}
+
+function spawnEnemy() {
+    if (enemies.length < 3) {
+        enemies.push({ x: Math.random() * (canvas.width-60)+30, y: Math.random() * (canvas.height/2), hp: 1 });
+    }
+}
+
+function spawnSkillshot() {
+    // Proyectiles vienen desde arriba o los lados para presionar
+    const x = Math.random() * canvas.width;
+    const y = -20;
+    const vx = (Math.random() - 0.5) * 4;
+    const vy = (4 + Math.random() * 2) * speedMult;
+    skillshots.push({ x, y, vx, vy, size: 15 });
+}
+
+setInterval(spawnSkillshot, 500); // Frecuencia alta
+setInterval(spawnEnemy, 2000);
+
+function update() {
+    if (hp <= 0) {
+        alert("GAME OVER - Score: " + score);
+        location.reload();
+        return;
+    }
+
+    // Movimiento Suave (Kiting)
+    let dx = player.tx - player.x;
+    let dy = player.ty - player.y;
+    let dist = Math.hypot(dx, dy);
+    if (dist > 5) {
+        player.x += (dx / dist) * player.speed;
+        player.y += (dy / dist) * player.speed;
+    }
+
+    // Mantener dentro del carril
+    player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
+
+    // Skillshots logic
+    skillshots.forEach((s, i) => {
+        s.x += s.vx; s.y += s.vy;
+        if (Math.hypot(player.x - s.x, player.y - s.y) < player.size + s.size) {
+            hp -= 25;
+            document.getElementById("hp").innerText = hp;
+            skillshots.splice(i, 1);
+        }
+        if (s.y > canvas.height + 20) skillshots.splice(i, 1);
+    });
+
+    // Balas y Kills
+    bullets.forEach((b, bi) => {
+        b.x += b.vx; b.y += b.vy;
+        enemies.forEach((en, ei) => {
+            if (Math.hypot(b.x - en.x, b.y - en.y) < 30) {
+                enemies.splice(ei, 1);
+                bullets.splice(bi, 1);
+                score += 100;
+                speedMult += 0.15; // Aumenta dificultad drásticamente
+                document.getElementById("score").innerText = score;
+                document.getElementById("vel-txt").innerText = Math.floor(speedMult * 100) + "%";
+            }
+        });
+    });
+
+    draw();
+    requestAnimationFrame(update);
+}
+
+function draw() {
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Dibujar suelo (estilo carril)
+    ctx.strokeStyle = "#222";
+    for(let i=0; i<canvas.height; i+=50) {
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
+    }
+
+    // Jinx (Blue)
+    ctx.fillStyle = "#00ccff";
+    ctx.shadowBlur = 15; ctx.shadowColor = "#00ccff";
+    ctx.beginPath(); ctx.arc(player.x, player.y, player.size, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Skillshots (Rojo brillante)
+    ctx.fillStyle = "#ff0044";
+    skillshots.forEach(s => {
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI*2); ctx.fill();
+    });
+
+    // Enemigos (Objetivos)
+    ctx.fillStyle = "#f39c12";
+    enemies.forEach(en => {
+        ctx.fillRect(en.x-15, en.y-15, 30, 30);
+    });
+
+    // Balas
+    ctx.fillStyle = "#fff";
+    bullets.forEach(b => {
+        ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
+    });
+}
+
+update();
+</script>
+</body>
+</html>
